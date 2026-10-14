@@ -13,9 +13,12 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from tools import suggest_outfit, create_fit_card
+from mcp_client import call_tool
 from generate import ModelUnavailable
 
 
@@ -106,9 +109,136 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    trace.start_trace()
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # Parse query
+    price_match = re.search(
+        r"(?:under|below|less than)\s*\$?(\d+(?:\.\d+)?)",
+        query,
+        re.IGNORECASE,
+    )
+
+    size_match = re.search(
+        r"\bsize\s+(XXS|XS|XXL|XL|S|M|L|\d+(?:\.\d+)?)\b",
+        query,
+        re.IGNORECASE,
+    )
+
+    max_price = float(price_match.group(1)) if price_match else None
+    size = size_match.group(1).upper() if size_match else None
+
+    description = query
+
+    if price_match:
+        description = description.replace(price_match.group(0), "")
+
+    if size_match:
+        description = description.replace(size_match.group(0), "")
+
+    description = description.strip(" ,.")
+
+    session["parsed"] = {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    }
+
+    trace.step("parse_query", returned=session["parsed"])
+
+    # Planning loop
+    current_step = "search"
+    iterations = 0
+
+    try:
+        while current_step != "done":
+            iterations += 1
+            trace.check_iterations(iterations)
+
+            if current_step == "search":
+                results = call_tool(
+                    "search_listings",
+                    {
+                        "description": session["parsed"]["description"],
+                        "size": session["parsed"]["size"],
+                        "max_price": session["parsed"]["max_price"],
+                    },
+                )
+
+                session["search_results"] = results
+
+                trace.step(
+                    "search_listings (via MCP)",
+                    inputs=session["parsed"],
+                    returned=results,
+                    note="called through mcp_client.call_tool → mcp_server.py",
+                )
+
+                # Important branch: no matching listings
+                if not results:
+                    session["error"] = (
+                        "No matching items found. Try increasing "
+                        "your budget, changing the size, or "
+                        "using broader search terms."
+                    )
+
+                    trace.step(
+                        "stop",
+                        note="No listings found. Skipping outfit and fit card.",
+                    )
+
+                    current_step = "done"
+                    continue
+
+                session["selected_item"] = results[0]
+                current_step = "outfit"
+
+            elif current_step == "outfit":
+                outfit = suggest_outfit(
+                    session["selected_item"],
+                    session["wardrobe"],
+                )
+
+                session["outfit_suggestion"] = outfit
+
+                trace.step(
+                    "suggest_outfit",
+                    inputs=session["selected_item"],
+                    returned=outfit,
+                )
+
+                if not outfit or not outfit.strip():
+                    session["error"] = "Unable to generate an outfit suggestion."
+                    current_step = "done"
+                    continue
+
+                current_step = "fit_card"
+
+            elif current_step == "fit_card":
+                card = create_fit_card(
+                    session["outfit_suggestion"],
+                    session["selected_item"],
+                )
+
+                session["fit_card"] = card
+
+                trace.step(
+                    "create_fit_card",
+                    inputs=session["outfit_suggestion"],
+                    returned=card,
+                )
+
+                if not card or not card.strip():
+                    session["error"] = "Unable to generate a fit card."
+
+                current_step = "done"
+
+    except ModelUnavailable:
+        session["error"] = (
+            "The AI model is currently unavailable. "
+            "Please check your API configuration and try again."
+        )
+        trace.step("model_error", note=session["error"])
+
     return session
 
 
