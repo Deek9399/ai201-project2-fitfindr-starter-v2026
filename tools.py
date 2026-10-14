@@ -69,13 +69,12 @@ def search_listings(
     realistic — thrift listings often have no brand. If something you write
     assumes a brand is always there, you will find out in unit 4.
 
-    TODO:
-        1. Load every listing with load_listings().
-        2. Filter by max_price and by size, when each is provided.
-        3. Score what's left by keyword overlap with `description`.
-        4. Drop anything scoring zero.
-        5. Sort by score, highest first, and return the listing dicts —
-           at most config.SEARCH_RESULT_LIMIT of them.
+    Ranking priority (weighted keyword matching, after price and size filters):
+        - Exact phrase in title: +10
+        - Each matching title keyword: +5
+        - Each matching category keyword: +3
+        - Each matching style tag keyword: +2
+        - Each matching description/color keyword: +1
 
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
@@ -83,47 +82,71 @@ def search_listings(
     listings = load_listings()
     results = []
 
-    keywords = set(re.findall(r"[a-z0-9]+", description.lower()))
+    query = description.strip().lower()
+    keywords = set(re.findall(r"[a-z0-9]+", query))
+
+    if not keywords:
+        return []
+
+    def tokenize(text):
+        return set(re.findall(r"[a-z0-9]+", text.lower()))
 
     for listing in listings:
 
-        # Filter by price
+        # 1. Price filtering
         if max_price is not None:
             if listing["price"] > max_price:
                 continue
 
-        # Filter by size
+        # 2. Size filtering
         if size is not None:
             requested_size = size.strip().upper()
             available_size = listing["size"].upper()
 
-            # Extract individual size tokens
-            size_tokens = re.findall(r"[A-Z]+|\d+(?:\.\d+)?", available_size)
+            size_tokens = re.findall(
+                r"[A-Z]+|\d+(?:\.\d+)?",
+                available_size
+            )
 
             if requested_size not in size_tokens:
                 continue
 
-        searchable_text = " ".join([
-            listing["title"],
-            listing["description"],
-            listing["category"],
-            " ".join(listing["style_tags"]),
-            " ".join(listing["colors"]),
-        ]).lower()
+        # 3. Extract searchable fields
+        title = listing["title"].lower()
+        category = listing["category"].lower()
+        style_tags = " ".join(listing["style_tags"]).lower()
+        item_description = listing["description"].lower()
+        colors = " ".join(listing["colors"]).lower()
 
-        listing_keywords = set(
-            re.findall(r"[a-z0-9]+", searchable_text)
-        )
+        title_words = tokenize(title)
+        category_words = tokenize(category)
+        style_words = tokenize(style_tags)
+        description_words = tokenize(item_description)
+        color_words = tokenize(colors)
 
-        score = len(keywords.intersection(listing_keywords))
+        # 4. Weighted relevance score
+        score = 0
 
+        if query in title:
+            score += 10
+
+        score += 5 * len(keywords & title_words)
+        score += 3 * len(keywords & category_words)
+        score += 2 * len(keywords & style_words)
+        score += len(keywords & description_words)
+        score += len(keywords & color_words)
+
+        # 5. Exclude unrelated listings
         if score == 0:
             continue
 
-        # Save score alongside the listing
         results.append((score, listing))
 
-    results.sort(key=lambda item: item[0], reverse=True)
+    # 6. Highest relevance first
+    results.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
 
     return [
         listing
