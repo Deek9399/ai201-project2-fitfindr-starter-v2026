@@ -293,19 +293,38 @@ The baseline runs exposed a search-ranking quality issue even though the two ful
 
 ## Loop Trace
 
-<!-- One full run, printed step by step, with the MCP call visible in it.
 
-     `python app.py ask '...' --trace` once you've added the trace.step()
+**Model-unavailable failure test:**
 
-     calls in Milestone 2.
+To test model failure handling, I temporarily changed one character in my API key and ran a new query that had matching listings.
 
-     Worth pasting BOTH the happy path and the empty-search path. The empty
+Command:
 
-     one should be visibly shorter, because it stops. If your two traces are
+```powershell
+python app.py ask 'retro corduroy blazer under $43'
+```
 
-     the same length, your branch isn't working — and this is the fastest way
+Actual terminal output:
 
-     anyone will ever find that out. -->
+```text
+[1] parse_query
+      out: dict with keys: description, size, max_price
+[2] search_listings (via MCP)
+      in:  dict with keys: description, size, max_price
+      out: 2 items: Vintage Linen Blazer — Cream, Corduroy Wide-Leg Pants — Rust
+      →    called through mcp_client.call_tool → mcp_server.py
+[3] model_error
+      →    The AI model is currently unavailable. Please check your API configuration and try again.
+
+The AI model is currently unavailable. Please check your API configuration and try again.
+
+1 model calls this session
+```
+
+**Result: PASS**
+
+The agent successfully detected the unavailable model after the MCP search completed. It stopped without a traceback and displayed an actionable message asking the user to check their API configuration and retry.
+
 
 **Happy path**
 
