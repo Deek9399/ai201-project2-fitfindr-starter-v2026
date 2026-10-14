@@ -245,7 +245,40 @@ that produced it:
 
 ---
 
+
 ## Verdicts and Diagnoses
+
+<!-- MET or MISSED per criterion against LAST UNIT's target, plus a sentence on
+     how you decided.
+
+     Then, for every miss: which of the four places it happened — a tool, the
+     loop's branch, the session, or the model's output — AND the mechanism. -->
+
+| # | Criterion | Target | Verdict | How I decided |
+|---|---|---|---|---|
+| 1 | Matching query completes all three tools | 4/5 | MET (5/5) | All five runs returned search results, generated two outfit suggestions, and produced a fit card. |
+| 2 | Impossible query stops early | 5/5 | MET (5/5) | All five runs returned an empty search result, displayed a helpful message, and skipped the remaining tools. |
+| 3 | Selected item remains consistent | 5/5 | MET (5/5) | The same cropped denim jacket was selected and used throughout the outfit and fit-card generation steps in all five runs. |
+| 4 | Fit card includes accurate listing information | 4/5 | MET (5/5) | All five fit cards mentioned the selected item's correct $18.00 price and Depop platform. |
+| 5 | Empty wardrobe produces two outfit suggestions | 4/5 | MET (5/5) | All five runs generated two distinct styling suggestions without requiring existing wardrobe items or claiming ownership of suggested pieces. |
+
+**Diagnoses**
+
+All five criteria met their original targets in the baseline evaluation. No criterion-level failures required a corrective fix.
+
+However, reviewing the actual search results revealed a quality issue not fully captured by the original criteria.
+
+**Issue: Search relevance**
+
+- **Location:** `tools.py::search_listings`
+- **Observed behavior:** For `vintage graphic tee under $30`, the agent selected `Y2K Baby Tee — Butterfly Print` even though more directly matching graphic tees were available.
+- **Mechanism:** The original keyword-overlap ranking did not give sufficient priority to item titles over incidental matches in other listing fields.
+- **Impact:** The agent completed its workflow successfully but could recommend a less relevant item.
+
+This distinction matters because a successful tool sequence does not necessarily mean the recommendation is the best match.
+
+I chose search relevance as the improvement target rather than changing the criteria after seeing the results.
+
 
 <!-- MET or MISSED per criterion against LAST UNIT's target, plus a sentence on
 
